@@ -31,3 +31,12 @@ model.add_command(convert)
 model.add_command(chat)
 model.add_command(test)
 model.add_command(download)
+
+# NeMo Integration
+try:
+    from nemo.core.config import hydra_runner
+except ImportError:
+    print("Module not found, skipping command execution")
+else:
+    from .train_nemo import train_nemo
+    model.add_command(train_nemo)
