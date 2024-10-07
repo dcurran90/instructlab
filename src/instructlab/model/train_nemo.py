@@ -12,7 +12,7 @@ import torch
 
 # First Party
 from instructlab import utils
-
+from nemo.core.config import hydra_runner
 
 class TorchDeviceParam(click.ParamType):
     """Parse and convert device string
