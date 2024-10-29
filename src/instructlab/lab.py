@@ -70,6 +70,7 @@ class ExpandAliasesGroup(click.Group):
 aliases = {
     "serve": {"group": model_group.model, "cmd": model_group.serve},
     "train": {"group": model_group.model, "cmd": model_group.train},
+    "train-nemo": {"group": model_group.model, "cmd": model_group.train_nemo},
     "convert": {"group": model_group.model, "cmd": model_group.convert},
     "chat": {"group": model_group.model, "cmd": model_group.chat},
     "test": {"group": model_group.model, "cmd": model_group.test},
