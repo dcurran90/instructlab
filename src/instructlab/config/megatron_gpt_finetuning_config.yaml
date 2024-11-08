@@ -1,21 +1,21 @@
-name: megatron_gpt_peft_${model.peft.peft_scheme}_tuning
+name: megatron_gpt_peft_test_tuning
 
 trainer:
   devices: 1
   accelerator: gpu
   num_nodes: 1
-  precision: 16
+  precision: bf16
   logger: False # logger provided by exp_manager
   enable_checkpointing: False
   use_distributed_sampler: False
   max_epochs: 9999
-  max_steps: 20000 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
-  log_every_n_steps: 10 # frequency with which training steps are logged
-  val_check_interval: 200 # If is an int n > 1, will run val every n training steps, if a float 0.0 - 1.0 will run val every epoch fraction, e.g. 0.25 will run val every quarter epoch
+  max_steps: 50 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  log_every_n_steps: 1 # frequency with which training steps are logged
+  val_check_interval: 20 # If is an int n > 1, will run val every n training steps, if a float 0.0 - 1.0 will run val every epoch fraction, e.g. 0.25 will run val every quarter epoch
   gradient_clip_val: 1.0
 
 exp_manager:
-  explicit_log_dir: null
+  explicit_log_dir: /data/results2
   exp_dir: null
   name: ${name}
   create_wandb_logger: False
@@ -49,12 +49,12 @@ model:
   pipeline_model_parallel_size: 1 # inter-layer model parallelism
 
   global_batch_size: 128
-  micro_batch_size: 4
+  micro_batch_size: 1
   restore_from_path: '/data/llama-2-7b.nemo' # Path to an existing .nemo model you wish to add new tasks to or run inference with
   resume_from_checkpoint: null # The path to a checkpoint file to continue the training, restores the whole state including the epoch, step, LR schedulers, apex, etc.
   save_nemo_on_validation_end: False # Saves an inference ready .nemo file every time a checkpoint is saved during training.
   sync_batch_comm: False
-  megatron_amp_O2: False
+  megatron_amp_O2: True
 
   ## Sequence Parallelism
   # Makes tensor parallelism more memory efficient for LLMs (20B+) by parallelizing layer norms and dropout sequentially
@@ -62,8 +62,8 @@ model:
   sequence_parallel: False
 
   ## Activation Checkpoint
-  activations_checkpoint_granularity: null # 'selective' or 'full'
-  activations_checkpoint_method: null # 'uniform', 'block', not used with 'selective'
+  activations_checkpoint_granularity: selective # 'selective' or 'full'
+  activations_checkpoint_method: uniform # 'uniform', 'block', not used with 'selective'
   # 'uniform' divides the total number of transformer layers and checkpoints the input activation
   # of each chunk at the specified granularity
   # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
@@ -84,7 +84,7 @@ model:
   fsdp_use_orig_params: False # Set to True to use FSDP for specific peft scheme.
 
   peft:
-    peft_scheme: "adapter"  # can be either adapter,ia3, or ptuning
+    peft_scheme: "lora"  # can be either adapter,ia3, or ptuning
     restore_from_path: null
 
     # Used for adapter peft training
@@ -139,7 +139,7 @@ model:
       global_batch_size: ${model.global_batch_size}
       micro_batch_size: ${model.micro_batch_size}
       shuffle: True
-      num_workers: 0
+      num_workers: 1
       memmap_workers: 2
       pin_memory: True
       max_seq_length: 2048
@@ -150,7 +150,7 @@ model:
       #   - 0.5
       #   - 0.25
       #   - 0.25
-      concat_sampling_probabilities: null # When providing a list of datasets, this arg defines the sampling probabilities from each dataset when strategy='random'
+      concat_sampling_probabilities: "[1.0]" # When providing a list of datasets, this arg defines the sampling probabilities from each dataset when strategy='random'
       label_key: 'output'
       add_eos: True
       add_sep: False
@@ -166,7 +166,7 @@ model:
       global_batch_size: ${model.global_batch_size}
       micro_batch_size: ${model.micro_batch_size}
       shuffle: False
-      num_workers: 0
+      num_workers: 1
       memmap_workers: ${model.data.train_ds.memmap_workers}
       pin_memory: True
       max_seq_length: 2048
@@ -194,7 +194,7 @@ model:
       global_batch_size: ${model.global_batch_size}
       micro_batch_size: ${model.micro_batch_size}
       shuffle: False
-      num_workers: 0
+      num_workers: 1
       memmap_workers: ${model.data.train_ds.memmap_workers}
       pin_memory: True
       max_seq_length: 2048
