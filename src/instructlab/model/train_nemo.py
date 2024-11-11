@@ -198,6 +198,9 @@ def train_nemo(
         from nemo.collections.nlp.parts.megatron_trainer_builder import MegatronLMPPTrainerBuilder
         from nemo.collections.nlp.models.language_modeling.megatron_gpt_sft_model import MegatronGPTSFTModel
         from nemo.utils.exp_manager import exp_manager
+        from nemo.collections.nlp.parts.peft_config import PEFT_CONFIG_MAP
+
+
 
         logging.info("\n\n************** Experiment configuration ***********")
         logging.info(f'\n{OmegaConf.to_yaml(cfg)}')

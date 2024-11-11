@@ -135,7 +135,7 @@ model:
       # Example of how each dataset is formatted
       # {'input': 'John von Neumann\nVon Neumann made fundamental contributions .... Q: What did the math of artificial viscosity do?', 'output': 'smoothed the shock transition without sacrificing basic physics'}
       file_names:
-        - /data/train.jsonl # Path to a list of JSONL files corresponding to the source data.
+        - /data/training.jsonl # Path to a list of JSONL files corresponding to the source data.
       global_batch_size: ${model.global_batch_size}
       micro_batch_size: ${model.micro_batch_size}
       shuffle: True
