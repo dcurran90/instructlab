@@ -60,6 +60,7 @@ issues = "https://github.com/instructlab/instructlab/issues"
 "serve" = "instructlab.cli.model.serve:serve"
 "test" = "instructlab.model.test:test"
 "train" = "instructlab.cli.model.train:train"
+"train-nemo" = "instructlab.cli.model.train_nemo:train_nemo"
 "list" = "instructlab.model.list:model_list"
 
 [project.entry-points."instructlab.command.system"]
