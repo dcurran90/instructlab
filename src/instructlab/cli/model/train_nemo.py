@@ -2,7 +2,6 @@
 
 # Standard
 from pathlib import Path
-import enum
 import logging
 import os
 import pathlib
@@ -14,16 +13,11 @@ import click
 # First Party
 from instructlab import clickext
 from instructlab.configuration import DEFAULTS, map_train_to_library
+from instructlab.model.accelerated_train import SupportedTrainingStrategies
 
 logger = logging.getLogger(__name__)
 
 ADDITIONAL_ARGUMENTS = "additional_args"
-
-
-class SupportedTrainingStrategies(enum.Enum):
-    """Available advanced training strategies"""
-
-    LAB_MULTIPHASE: str = "lab-multiphase"
 
 
 def clickpath_setup(is_dir: bool) -> click.Path:
@@ -42,6 +36,52 @@ def clickpath_setup(is_dir: bool) -> click.Path:
         path_type=pathlib.Path,
     )
 
+
+def train_nemo():
+    import hydra
+    from omegaconf import OmegaConf
+
+    hydra.initialize(config_path="../../config", job_name="megatron_gpt_finetuning")
+
+    from nemo.collections.nlp.models.language_modeling.megatron_gpt_sft_model import MegatronGPTSFTModel
+    from nemo.collections.nlp.parts.megatron_trainer_builder import MegatronLMPPTrainerBuilder
+    from nemo.collections.nlp.parts.peft_config import PEFT_CONFIG_MAP
+
+    from nemo.core.config import hydra_runner
+    from nemo.utils import logging
+    from nemo.utils.exp_manager import exp_manager
+
+
+    logging.info("\n\n************** Experiment configuration ***********")
+    logging.info(f'\n{OmegaConf.to_yaml(cfg)}')
+
+    trainer = MegatronLMPPTrainerBuilder(cfg).create_trainer()
+    exp_manager(trainer, cfg.exp_manager)
+
+    model_cfg = MegatronGPTSFTModel.merge_cfg_with(cfg.model.restore_from_path, cfg)
+
+    logging.info("\n\n************** Dan Config ***********")
+    logging.info(f'\n{OmegaConf.to_yaml(model_cfg)}')
+    logging.info("\n\n************** End Dan Config ***********")
+
+    model = MegatronGPTSFTModel.restore_from(cfg.model.restore_from_path, model_cfg, trainer=trainer)
+    peft_cfg_cls = PEFT_CONFIG_MAP[cfg.model.peft.peft_scheme]
+
+    if cfg.model.peft.restore_from_path is not None:
+        # initialize peft weights from a checkpoint instead of randomly
+        # This is not the same as resume training because optimizer states are not restored.
+        logging.info("PEFT Weights will be loaded from", cfg.model.peft.restore_from_path)
+        model.load_adapters(cfg.model.peft.restore_from_path, peft_cfg_cls(model_cfg))
+    elif peft_cfg_cls is not None:
+        logging.info("Adding adapter weights to the model for PEFT")
+        model.add_adapter(peft_cfg_cls(model_cfg))
+    else:
+        logging.info(f"Running full finetuning since no peft scheme is given.\n{model.summarize()}")
+
+
+    logging.info("\n\n************** Dan Trying to Train ***********")
+
+    trainer.fit(model)
 
 @click.command()
 @click.option(
@@ -285,7 +325,11 @@ def clickpath_setup(is_dir: bool) -> click.Path:
 @click.option(
     "--strategy",
     type=click.Choice(
-        [SupportedTrainingStrategies.LAB_MULTIPHASE.value], case_sensitive=False
+        [
+            SupportedTrainingStrategies.LAB_MULTIPHASE.value,
+            SupportedTrainingStrategies.LAB_SKILLS_ONLY.value,
+        ],
+        case_sensitive=False,
     ),
     show_default=True,
     help="If chosen, will run the selected training strategy instead of a single training run.",
@@ -311,6 +355,11 @@ def clickpath_setup(is_dir: bool) -> click.Path:
     type=click.IntRange(min=0),
 )
 @click.option(
+    "--phased-phase1-learning-rate",
+    cls=clickext.ConfigOption,
+    type=click.FloatRange(min=0),
+)
+@click.option(
     "--phased-phase1-effective-batch-size",
     cls=clickext.ConfigOption,
     type=click.IntRange(min=1),
@@ -329,6 +378,11 @@ def clickpath_setup(is_dir: bool) -> click.Path:
     "--phased-phase2-samples-per-save",
     cls=clickext.ConfigOption,
     type=click.IntRange(min=0),
+)
+@click.option(
+    "--phased-phase2-learning-rate",
+    cls=clickext.ConfigOption,
+    type=click.FloatRange(min=0),
 )
 @click.option(
     "--phased-phase2-effective-batch-size",
@@ -397,10 +451,12 @@ def train(
     phased_phase1_data: pathlib.Path | None,
     phased_phase1_num_epochs: int | None,
     phased_phase1_samples_per_save: int | None,
+    phased_phase1_learning_rate: float | None,
     phased_phase1_effective_batch_size: int | None,
     phased_phase2_data: pathlib.Path | None,
     phased_phase2_num_epochs: int | None,
     phased_phase2_samples_per_save: int | None,
+    phased_phase2_learning_rate: float | None,
     phased_phase2_effective_batch_size: int | None,
     phased_mt_bench_judge: pathlib.Path | None,
     skip_user_confirm: bool,
@@ -416,11 +472,12 @@ def train(
     Takes synthetic data generated locally with `ilab data generate` and the previous model and learns a new model using the MLX API.
     On success, writes newly learned model to {model_dir}/mlx_model, which is where `chatmlx` will look for a model.
     """
-    if (
-        pipeline in ("full", "simple")
-        and strategy == SupportedTrainingStrategies.LAB_MULTIPHASE.value
+    if pipeline in ("full", "simple") and SupportedTrainingStrategies.has_strategy(
+        strategy
     ):
-        ctx.fail("Multi Phase training is only supported with `--pipeline accelerated`")
+        ctx.fail(
+            "Multi Phase and Skills Only training is only supported with `--pipeline accelerated`"
+        )
 
     # TODO: cdoern, remove this flag
     if not input_dir:
@@ -432,17 +489,11 @@ def train(
 
     if (
         pipeline in ("full", "accelerated")
-    ) and strategy != SupportedTrainingStrategies.LAB_MULTIPHASE.value:
+    ) and not SupportedTrainingStrategies.has_strategy(strategy):
         if not os.path.isfile(data_path):
             ctx.fail(
                 f"Data path must be to a valid .jsonl file. Value given: {data_path}"
             )
-
-
-    from nemo.collections.nlp.parts.megatron_trainer_builder import MegatronLMPPTrainerBuilder
-    logging.info("\n\n************** DAN1 **************")
-
-    '''
     # we can use train_args locally to run lower fidelity training
     if is_high_fidelity(device=device) and pipeline == "accelerated":
         train_args, torch_args = map_train_to_library(ctx, ctx.params)
@@ -461,9 +512,11 @@ def train(
                 phased_base_dir=phased_base_dir,
                 phased_phase1_num_epochs=phased_phase1_num_epochs,
                 phased_phase1_samples_per_save=phased_phase1_samples_per_save,
+                phased_phase1_learning_rate=phased_phase1_learning_rate,
                 phased_phase1_effective_batch_size=phased_phase1_effective_batch_size,
                 phased_phase2_num_epochs=phased_phase2_num_epochs,
                 phased_phase2_samples_per_save=phased_phase2_samples_per_save,
+                phased_phase2_learning_rate=phased_phase2_learning_rate,
                 phased_phase2_effective_batch_size=phased_phase2_effective_batch_size,
                 enable_serving_output=enable_serving_output,
                 phased_mt_bench_judge=phased_mt_bench_judge,
@@ -514,15 +567,14 @@ def train(
         except Exception as exc:
             click.secho(f"{exc}", fg="red")
             raise click.exceptions.Exit(1)
-
     else:
         click.secho(
             f"Unable to train with device={device} and pipeline={pipeline}", fg="red"
         )
         raise click.exceptions.Exit(1)
-    '''
 
 
 # chooses which type of training to run depending on the device provided
 def is_high_fidelity(device):
     return device in ("cuda", "hpu")
+

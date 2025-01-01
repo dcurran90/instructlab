@@ -73,6 +73,7 @@ issues = "https://github.com/instructlab/instructlab/issues"
 "chat" = "instructlab.model.chat:chat"
 "generate" = "instructlab.cli.data.generate:generate"
 "train" = "instructlab.cli.model.train:train"
+"train-nemo" = "instructlab.cli.model.train_nemo:train_nemo"
 "serve" = "instructlab.cli.model.serve:serve"
 
 [tool.setuptools_scm]
